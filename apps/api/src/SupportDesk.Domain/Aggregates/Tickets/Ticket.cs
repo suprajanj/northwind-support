@@ -48,9 +48,12 @@ public sealed class Ticket : AggregateRoot
     /// <summary>True while the ticket still needs work from an agent.</summary>
     public bool IsOpen => Status is not (TicketStatus.Resolved or TicketStatus.Closed);
 
+    private readonly List<TicketEscalation> _escalations = [];
+
+    public IReadOnlyCollection<TicketEscalation> Escalations => _escalations;
+
     /// <summary>
-    /// Raises a new ticket for a customer. It starts as <see cref="TicketStatus.New"/>, with no
-    /// owner and no due date.
+    /// Raises a new ticket for a customer.
     /// </summary>
     public static Ticket Raise(
         string reference,
@@ -59,7 +62,9 @@ public sealed class Ticket : AggregateRoot
         int customerId,
         int categoryId,
         TicketPriority priority,
-        DateTime nowUtc)
+        DateTime nowUtc,
+        DateTime? dueAtUtc = null,
+        int? assignedAgentId = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(reference);
         ArgumentException.ThrowIfNullOrWhiteSpace(title);
@@ -74,9 +79,78 @@ public sealed class Ticket : AggregateRoot
             CategoryId = categoryId,
             Priority = priority,
             Status = TicketStatus.New,
+            DueAtUtc = dueAtUtc,
+            AssignedAgentId = assignedAgentId,
             CreatedAtUtc = nowUtc,
             UpdatedAtUtc = nowUtc
         };
+    }
+
+    /// <summary>
+    /// Updates the committed due date for the ticket.
+    /// </summary>
+    public void SetDueAt(DateTime? dueAtUtc, DateTime nowUtc)
+    {
+        DueAtUtc = dueAtUtc;
+        UpdatedAtUtc = nowUtc;
+    }
+
+    /// <summary>
+    /// Calculates the next escalation priority level.
+    /// </summary>
+    /// <exception cref="BusinessRuleViolationException">Ticket is already at Critical priority.</exception>
+    public static TicketPriority NextPriority(TicketPriority current) => current switch
+    {
+        TicketPriority.Low => TicketPriority.Medium,
+        TicketPriority.Medium => TicketPriority.High,
+        TicketPriority.High => TicketPriority.Critical,
+        TicketPriority.Critical => throw new BusinessRuleViolationException("Ticket is already at Critical priority and cannot be escalated."),
+        _ => throw new ArgumentOutOfRangeException(nameof(current), $"Unsupported priority {current}")
+    };
+
+    /// <summary>
+    /// Escalates the ticket's priority, reassigns owner if necessary, recalculates SLA due date,
+    /// and records an immutable escalation record.
+    /// </summary>
+    /// <exception cref="BusinessRuleViolationException">The ticket is Critical or Resolved/Closed.</exception>
+    public TicketEscalation Escalate(
+        TicketPriority newPriority,
+        DateTime newDueAtUtc,
+        int? newAgentId,
+        string reason,
+        string escalatedBy,
+        DateTime nowUtc)
+    {
+        if (Priority == TicketPriority.Critical)
+        {
+            throw new BusinessRuleViolationException("Ticket is already at Critical priority and cannot be escalated.");
+        }
+
+        if (Status is TicketStatus.Resolved or TicketStatus.Closed)
+        {
+            throw new BusinessRuleViolationException($"Ticket {Reference} is {Status} and cannot be escalated.");
+        }
+
+        var escalation = new TicketEscalation(
+            Id,
+            Priority,
+            newPriority,
+            AssignedAgentId,
+            newAgentId,
+            DueAtUtc,
+            newDueAtUtc,
+            reason,
+            escalatedBy,
+            nowUtc);
+
+        _escalations.Add(escalation);
+
+        Priority = newPriority;
+        DueAtUtc = newDueAtUtc;
+        AssignedAgentId = newAgentId;
+        UpdatedAtUtc = nowUtc;
+
+        return escalation;
     }
 
     /// <summary>

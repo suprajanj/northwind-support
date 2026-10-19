@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using SupportDesk.Domain.Aggregates.Tickets;
 using SupportDesk.Domain.Repositories;
 
 namespace SupportDesk.Infrastructure.Data;
@@ -10,6 +11,8 @@ namespace SupportDesk.Infrastructure.Data;
 /// </summary>
 public class SupportDbContext(DbContextOptions<SupportDbContext> options) : DbContext(options), IUnitOfWork
 {
+    public DbSet<TicketEscalation> TicketEscalations => Set<TicketEscalation>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.ApplyConfigurationsFromAssembly(typeof(SupportDbContext).Assembly);
