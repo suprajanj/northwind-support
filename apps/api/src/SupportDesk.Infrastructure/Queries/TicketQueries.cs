@@ -23,7 +23,9 @@ public sealed class TicketQueries(SupportDbContext db, IClock clock) : ITicketQu
     /// </remarks>
     public async Task<PagedResult<TicketListItemDto>> GetPagedAsync(TicketQuery query, CancellationToken ct)
     {
-        var tickets = TicketsWithLabels();
+        query = query.Normalized();
+
+        var tickets = ApplyFilters(TicketsWithLabels(), query);
 
         var totalCount = await tickets.CountAsync(ct);
 
@@ -116,6 +118,51 @@ public sealed class TicketQueries(SupportDbContext db, IClock clock) : ITicketQu
         join category in db.Set<Category>() on ticket.CategoryId equals category.Id
         from agent in db.Set<Agent>().Where(a => a.Id == ticket.AssignedAgentId).DefaultIfEmpty()
         select new TicketWithLabels { Ticket = ticket, Customer = customer, Category = category, Agent = agent };
+
+    private static IQueryable<TicketWithLabels> ApplyFilters(IQueryable<TicketWithLabels> source, TicketQuery query)
+    {
+        if (query.Status.HasValue)
+        {
+            source = source.Where(x => x.Ticket.Status == query.Status.Value);
+        }
+
+        if (query.Priority.HasValue)
+        {
+            source = source.Where(x => x.Ticket.Priority == query.Priority.Value);
+        }
+
+        if (query.CategoryId.HasValue)
+        {
+            source = source.Where(x => x.Ticket.CategoryId == query.CategoryId.Value);
+        }
+
+        if (query.CustomerId.HasValue)
+        {
+            source = source.Where(x => x.Ticket.CustomerId == query.CustomerId.Value);
+        }
+
+        if (query.AssignedAgentId.HasValue)
+        {
+            source = source.Where(x => x.Ticket.AssignedAgentId == query.AssignedAgentId.Value);
+        }
+
+        if (query.UnassignedOnly)
+        {
+            source = source.Where(x => x.Ticket.AssignedAgentId == null);
+        }
+
+        if (!string.IsNullOrWhiteSpace(query.Search))
+        {
+            var search = query.Search.Trim();
+            var pattern = $"%{search}%";
+            source = source.Where(x =>
+                EF.Functions.Like(x.Ticket.Title, pattern) ||
+                EF.Functions.Like(x.Ticket.Reference, pattern) ||
+                EF.Functions.Like(x.Customer.Name, pattern));
+        }
+
+        return source;
+    }
 
     private static IQueryable<TicketWithLabels> ApplySort(IQueryable<TicketWithLabels> source, TicketQuery query)
     {
