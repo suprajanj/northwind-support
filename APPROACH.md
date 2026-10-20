@@ -159,6 +159,44 @@ AI was **not** used for:
 
 ---
 
+## Task 4 — Dockerise the API
+
+### Multi-stage build (DK-1)
+
+Three stages:
+1. **`restore`** — copies only project files (`*.csproj`) and the three repo-level MSBuild props files before source. This makes `dotnet restore` a cached layer. A source change does not invalidate restore; only a `*.csproj` or `Directory.*.props` change does.
+2. **`publish`** — copies source and runs `dotnet publish --no-restore --configuration Release` so restore packages are reused.
+3. **`runtime`** — uses `mcr.microsoft.com/dotnet/aspnet:10.0` (no SDK tooling) to keep the image small.
+
+### Build context and .dockerignore (DK-2)
+
+The Dockerfile is at `apps/api/Dockerfile` and is built with the **repo root** as the context (needed to copy `global.json`, `Directory.Build.props`, `Directory.Packages.props` which live at the root). `.dockerignore` strips `bin/`, `obj/`, `node_modules/`, `.git/`, `.env`, and `apps/web/` so the 235 MB node context doesn't transfer to the daemon.
+
+### Non-root user (DK-3)
+
+The runtime image is Debian-based, so `groupadd`/`useradd` (not Alpine's `addgroup`/`adduser`) create the `appgroup`/`appuser` system accounts. The container runs on HTTP port 8080; no HTTPS certificates are needed or present.
+
+### Secrets at runtime (DK-4)
+
+The image bakes in no configuration. All three sensitive values arrive as runtime environment variables from `docker-compose.yml` (or the caller's `.env`):
+- `ConnectionStrings__Default` — contains the SA password
+- `Authentication__Jwt__SecretKey` — the signing key
+- `ASPNETCORE_ENVIRONMENT` — controls Swagger, log verbosity
+
+Default fallback values in `docker-compose.yml` are the same throwaway dev strings used locally. They are committed deliberately (local fixtures only) and documented as such.
+
+### Migrations at startup (DK-6)
+
+`MigrateAndSeedAsync` now runs unconditionally on startup (not only when `ASPNETCORE_ENVIRONMENT=Development`). This means `docker compose up` on a fresh volume applies all EF Core migrations and seeds demo data automatically.
+
+**Why not for production:** In a real deployment, running migrations inside the app process is risky — two replicas starting simultaneously can race on schema changes, migrations can't be rolled back atomically with code, and the app service account needs DDL permissions. The production pattern is a dedicated migration step in the release pipeline: `dotnet ef database update` (or `migrate`) with a deployment-service account, before traffic is shifted to the new release.
+
+### Health endpoint (DK-7)
+
+`GET /health` is a minimal API endpoint tagged `[AllowAnonymous]`. It attempts `db.Database.CanConnectAsync()` and returns `200 { status, database }` or `503`. It bypasses the JWT fallback policy centrally (no per-request token needed).
+
+---
+
 ## Known limitations
 
 See README under "Known limitations" for the full list. Key items:

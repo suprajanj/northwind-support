@@ -32,6 +32,36 @@ In Development the API applies migrations and seeds demo data on startup. **Neve
 
 ---
 
+## Fully containerised (Task 4)
+
+One command brings up both SQL Server and the API:
+
+```bash
+docker compose down -v         # wipe any existing data
+docker compose up --build      # build API image, start SQL Server + API
+```
+
+| What | Where |
+| --- | --- |
+| API (containerised) | http://localhost:5080 |
+| Health endpoint | http://localhost:5080/health |
+| Tokens | `POST http://localhost:5080/api/auth/login` |
+
+The container runs as a non-root user (`appuser`). Verify with:
+
+```bash
+docker compose exec api whoami   # → appuser
+curl http://localhost:5080/health # → {"status":"Healthy","database":"Connected"}
+```
+
+**Run the React dev server against the container instead of the local dotnet process:**
+
+```bash
+VITE_API_PROXY_TARGET=http://localhost:5080 npm run web
+```
+
+---
+
 ## Dev login credentials
 
 Task 3 adds authentication. All seeded agents share the same **development** password:
@@ -130,6 +160,16 @@ The JWT is stored in **`localStorage`** under the key `northwind_support_token`.
 
 **Signing key:** Comes from `JWT_SECRET_KEY` environment variable (listed in `.env.example`). A fallback development value is present in `appsettings.Development.json`; it must never be used in production.
 
+### Task 4 — Dockerisation
+
+**Multi-stage build:** Three stages — `restore` (project files + props only, cacheable), `publish` (source + `dotnet publish --no-restore`), `runtime` (ASP.NET image, no SDK). Changing a `.cs` file only invalidates from the `COPY apps/api/src/` layer onward; the NuGet restore layer is reused.
+
+**Non-root user:** The `mcr.microsoft.com/dotnet/aspnet:10.0` image is Debian-based. `groupadd`/`useradd` create a `appgroup`/`appuser` system account; the process runs as that user.
+
+**Migrations at startup:** `MigrateAndSeedAsync` runs unconditionally (not only in Development) so `docker compose up` on an empty volume produces a fully migrated, seeded database. In a real deployment migrations should run as a **separate pipeline step** (`dotnet ef database update`) before the new release receives traffic — to avoid race conditions between replicas and to keep DDL permissions out of the app service account.
+
+**No secrets baked in:** Connection string, JWT key, and environment name come from runtime env vars (`ConnectionStrings__Default`, `Authentication__Jwt__SecretKey`, `ASPNETCORE_ENVIRONMENT`). All listed in `.env.example`.
+
 ---
 
 ## Known limitations
@@ -138,6 +178,7 @@ The JWT is stored in **`localStorage`** under the key `northwind_support_token`.
 - **No lockout / rate limiting:** Brute-force on `/api/auth/login` is not mitigated. Should be added before production.
 - **`localStorage` XSS risk:** See Token storage section above.
 - **No HTTPS in production:** The dev certificate is self-signed. A real deployment needs a proper TLS certificate.
+- **Migrations at startup (Docker):** The container runs `MigrateAndSeedAsync` on startup. In production this would be a dedicated pipeline step to avoid race conditions when scaling.
 - **Registration, password reset, roles, OAuth/SSO, MFA:** Out of scope per the spec.
 
 ---
@@ -148,7 +189,9 @@ The JWT is stored in **`localStorage`** under the key `northwind_support_token`.
 | --- | --- |
 | API cannot reach the database | `npm run db:up`, wait ~20 s, check `docker compose ps` |
 | Port 1433 already in use | Change the port in `docker-compose.yml` and `.env` |
+| Port 5080 already in use | Change `5080:8080` in `docker-compose.yml` |
 | Browser warns about the certificate | `dotnet dev-certs https --trust`, or use the web app, which proxies |
 | Web app shows "Unable to load tickets" | The API is not running, or `VITE_API_PROXY_TARGET` points at the wrong port |
 | "401 Unauthorized" after long idle | Token expired (8 h); sign in again |
+| Container exits immediately after SQL Server healthy | Check `docker compose logs api`; usually a bad connection string |
 | SQL Server slow on Apple Silicon | Enable Rosetta in Docker Desktop → Settings → General |

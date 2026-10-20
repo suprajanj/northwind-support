@@ -1,0 +1,25 @@
+# DK-2: Exclude build artefacts, secrets, and the web app from the Docker context.
+
+# .NET build outputs
+bin/
+obj/
+
+# Node / web app (not included in the API image)
+node_modules/
+apps/web/
+
+# Git history
+.git/
+.github/
+
+# Local secrets and environment overrides – never bake these in
+.env
+*.user
+*.env.local
+
+# IDE / OS noise
+.DS_Store
+.vscode/
+.vs/
+*.suo
+*.swp

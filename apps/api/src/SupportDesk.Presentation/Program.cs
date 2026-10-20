@@ -71,13 +71,17 @@ var app = builder.Build();
 
 app.UseMiddleware<ExceptionHandlingMiddleware>();
 
+// DK-6: Apply pending migrations and seed demo data on every startup.
+// In a real production deployment you would run migrations as a separate
+// step before starting the app (e.g. "dotnet ef database update" in a
+// release pipeline). Here we run them at startup so that "docker compose up"
+// on an empty volume produces a ready-to-use database with no extra steps.
+await app.MigrateAndSeedAsync();
+
 if (app.Environment.IsDevelopment())
 {
     app.UseSwagger();
     app.UseSwaggerUI();
-
-    // Keeps a developer machine one command away from a working database.
-    await app.MigrateAndSeedAsync();
 }
 
 app.UseCors(FrontendCorsPolicy);
