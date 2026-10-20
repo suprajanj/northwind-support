@@ -29,3 +29,23 @@ export function page(items: TicketListItem[]): PagedResult<TicketListItem> {
     totalPages: 1,
   };
 }
+
+export function ticketDetail(overrides: Partial<import('../types/api').TicketDetail> = {}): import('../types/api').TicketDetail {
+  return {
+    id: 12,
+    reference: 'TCK-0012',
+    title: 'Invoice total does not match the order',
+    description: 'Detailed explanation of the issue.',
+    status: 'Open',
+    priority: 'Medium',
+    customer: { id: 2, name: 'Fabrikam Inc', tier: 'Standard', email: 'billing@fabrikam.com', phone: null },
+    category: { id: 2, name: 'Billing', requiresSpecialist: true },
+    assignedAgent: { id: 4, fullName: 'Sara Lindqvist' },
+    createdAtUtc: '2026-09-24T08:12:00Z',
+    updatedAtUtc: '2026-09-25T10:03:00Z',
+    dueAtUtc: '2026-09-25T08:12:00Z',
+    resolvedAtUtc: null,
+    slaStatus: 'WithinSla',
+    ...overrides,
+  };
+}

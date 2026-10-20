@@ -148,6 +148,57 @@ public class TicketQueriesTests : IDisposable
         Assert.Equal(2, result.TotalPages);
     }
 
+    [Fact]
+    public async Task GetPagedAsync_SlaStatusFilter_FiltersCorrectly()
+    {
+        // Initially all 4 seeded tickets have no DueAtUtc, so all are NotApplicable
+        var notAppResult = await _sut.GetPagedAsync(new TicketQuery { SlaStatus = SlaStatus.NotApplicable }, CancellationToken.None);
+        Assert.Equal(4, notAppResult.TotalCount);
+
+        var breachedResult = await _sut.GetPagedAsync(new TicketQuery { SlaStatus = SlaStatus.Breached }, CancellationToken.None);
+        Assert.Equal(0, breachedResult.TotalCount);
+    }
+
+    [Fact]
+    public async Task GetEscalationsAsync_ReturnsEscalationsNewestFirst()
+    {
+        var ticket = _db.Set<Ticket>().First();
+        var escalation1 = new TicketEscalation(
+            ticket.Id,
+            TicketPriority.Medium,
+            TicketPriority.High,
+            null,
+            _agentAlex.Id,
+            FixedClock.DefaultNow.AddHours(24),
+            FixedClock.DefaultNow.AddHours(8),
+            "Escalated due to customer severity",
+            "manager@northwind.com",
+            FixedClock.DefaultNow.AddMinutes(10));
+
+        var escalation2 = new TicketEscalation(
+            ticket.Id,
+            TicketPriority.High,
+            TicketPriority.Critical,
+            _agentAlex.Id,
+            _agentAlex.Id,
+            FixedClock.DefaultNow.AddHours(8),
+            FixedClock.DefaultNow.AddHours(4),
+            "Escalated to critical due to outage",
+            "director@northwind.com",
+            FixedClock.DefaultNow.AddMinutes(30));
+
+        _db.AddRange(escalation1, escalation2);
+        await _db.SaveChangesAsync();
+
+        var escalations = await _sut.GetEscalationsAsync(ticket.Id, CancellationToken.None);
+
+        Assert.Equal(2, escalations.Count);
+        Assert.Equal("Escalated to critical due to outage", escalations[0].Reason);
+        Assert.Equal(TicketPriority.Critical, escalations[0].ToPriority);
+        Assert.Equal("director@northwind.com", escalations[0].EscalatedBy);
+        Assert.Equal("Escalated due to customer severity", escalations[1].Reason);
+    }
+
     public void Dispose()
     {
         _db.Dispose();

@@ -22,8 +22,10 @@ public static class DependencyInjection
         services.AddScoped<RaiseTicketCommandHandler>();
         services.AddScoped<ChangeTicketStatusCommandHandler>();
         services.AddScoped<AssignTicketCommandHandler>();
+        services.AddScoped<Features.Tickets.Commands.EscalateTicket.EscalateTicketCommandHandler>();
         services.AddScoped<SearchTicketsQueryHandler>();
         services.AddScoped<GetTicketQueryHandler>();
+        services.AddScoped<Features.Tickets.Queries.GetTicketEscalations.GetTicketEscalationsQueryHandler>();
 
         services.AddScoped<GetCustomersQueryHandler>();
         services.AddScoped<GetCustomerQueryHandler>();
