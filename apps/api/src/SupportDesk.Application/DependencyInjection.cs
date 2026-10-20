@@ -34,6 +34,9 @@ public static class DependencyInjection
 
         services.AddScoped<GetCategoriesQueryHandler>();
 
+        services.AddScoped<Features.Auth.Login.LoginCommandHandler>();
+        services.AddScoped<Features.Auth.GetCurrentUser.GetCurrentUserQueryHandler>();
+
         services.AddValidatorsFromAssemblyContaining<RaiseTicketCommandHandler>(ServiceLifetime.Singleton);
 
         return services;

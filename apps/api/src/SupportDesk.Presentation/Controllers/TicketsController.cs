@@ -63,8 +63,16 @@ public sealed class TicketsController : ControllerBase
         int id,
         [FromBody] EscalateTicketRequest request,
         [FromServices] SupportDesk.Application.Features.Tickets.Commands.EscalateTicket.EscalateTicketCommandHandler handler,
-        CancellationToken ct) =>
-        handler.HandleAsync(id, request, ct);
+        CancellationToken ct)
+    {
+        var actor = User.FindFirst(System.Security.Claims.ClaimTypes.Email)?.Value
+            ?? User.FindFirst(System.Security.Claims.ClaimTypes.Name)?.Value
+            ?? User.Identity?.Name
+            ?? "Authenticated Agent";
+
+        var effectiveRequest = new EscalateTicketRequest(request.Reason, actor);
+        return handler.HandleAsync(id, effectiveRequest, ct);
+    }
 
     /// <summary>Returns the escalation audit history for a ticket, newest first.</summary>
     [HttpGet("{id:int}/escalations")]

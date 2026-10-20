@@ -25,21 +25,59 @@ export class ApiError extends Error {
   }
 }
 
+export const AUTH_TOKEN_KEY = 'northwind_support_token';
+
+/** Gets the currently stored JWT token from local storage. */
+export function getStoredToken(): string | null {
+  try {
+    return localStorage.getItem(AUTH_TOKEN_KEY);
+  } catch {
+    return null;
+  }
+}
+
+/** Updates or removes the stored JWT token. */
+export function setStoredToken(token: string | null): void {
+  try {
+    if (token) {
+      localStorage.setItem(AUTH_TOKEN_KEY, token);
+    } else {
+      localStorage.removeItem(AUTH_TOKEN_KEY);
+    }
+  } catch {
+    // Ignore storage errors (e.g. storage quota, private browsing restricted).
+  }
+}
+
 /**
  * The single place that talks to the API. Returns parsed JSON, or throws an
  * {@link ApiError} that callers can show to the user.
+ * Attaches the Authorization header with Bearer token if present.
+ * Clears token and notifies on 401 responses.
  */
 export async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  const token = getStoredToken();
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    ...((init?.headers as Record<string, string>) ?? {}),
+  };
+
   const response = await fetch(`${baseUrl}${path}`, {
     ...init,
-    headers: {
-      'Content-Type': 'application/json',
-      ...(init?.headers ?? {}),
-    },
+    headers,
   });
 
   if (!response.ok) {
     const problem = await readProblem(response);
+
+    // AU-13: Any 401 (e.g. expired token) on authenticated endpoints clears the session
+    if (response.status === 401 && !path.startsWith('/auth/login')) {
+      setStoredToken(null);
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('northwind:unauthorized'));
+      }
+    }
 
     throw new ApiError(
       response.status,

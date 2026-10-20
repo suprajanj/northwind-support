@@ -30,6 +30,19 @@ public static class DependencyInjection
         services.AddScoped<IUnitOfWork>(sp => sp.GetRequiredService<SupportDbContext>());
 
         services.AddSingleton<IClock, SystemClock>();
+        services.AddSingleton<IPasswordHasher, Security.Pbkdf2PasswordHasher>();
+
+        var jwtSection = configuration.GetSection(Security.JwtOptions.SectionName);
+        var defaultJwt = new Security.JwtOptions();
+        var jwtOptions = new Security.JwtOptions
+        {
+            SecretKey = jwtSection["SecretKey"] ?? defaultJwt.SecretKey,
+            Issuer = jwtSection["Issuer"] ?? defaultJwt.Issuer,
+            Audience = jwtSection["Audience"] ?? defaultJwt.Audience,
+            ExpiryHours = int.TryParse(jwtSection["ExpiryHours"], out var h) ? h : defaultJwt.ExpiryHours
+        };
+        services.AddSingleton(jwtOptions);
+        services.AddSingleton<IJwtTokenGenerator, Security.JwtTokenGenerator>();
 
         services.AddScoped<ITicketRepository, TicketRepository>();
         services.AddScoped<IAgentRepository, AgentRepository>();

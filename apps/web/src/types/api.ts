@@ -168,6 +168,23 @@ export interface CustomerDetail {
   tickets: TicketListItem[];
 }
 
+export interface CurrentUser {
+  id: number;
+  fullName: string;
+  email: string;
+}
+
+export interface LoginResponse {
+  token: string;
+  expiresAtUtc: string;
+  user: CurrentUser;
+}
+
+export interface LoginPayload {
+  email: string;
+  password: string;
+}
+
 /** RFC 7807 problem document, which is how the API reports every failure. */
 export interface ProblemDetails {
   type?: string;
@@ -177,3 +194,4 @@ export interface ProblemDetails {
   traceId?: string;
   errors?: Record<string, string[]>;
 }
+

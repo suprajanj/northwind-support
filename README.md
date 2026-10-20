@@ -7,40 +7,6 @@ and move them through their lifecycle.
 
 ---
 
-## The assignment
-
-You are joining a team that already has this app working. Complete the tasks **in order**.
-Full requirements are in **[`ASSIGNMENT_CANDIDATE.md`](ASSIGNMENT_CANDIDATE.md)**.
-
-| # | Task | Done looks like | Effort |
-| --- | --- | --- | --- |
-| 1 | **Fix a defect, add server-side filtering** | Root cause fixed with a regression test; every list filter applied in the database with a correct count | ~2.5 h |
-| 2 | **Ticket escalation & assignment** | Automatic triage on create, escalation with history, SLA status, UI for all of it | ~7 h |
-| 3 | **Login and authentication** | Agents sign in; API rejects unauthenticated calls; login UI | ~4 h |
-| 4 | **Dockerise the API** *(optional)* | `docker compose up` gives a migrated, seeded API with no baked-in secret | ~1.5 h |
-
-### Guidance
-
-- **Time: 2 days.** Honestly marking a task "not finished" beats rushing all of them.
-- **Fork** this repo to your own GitHub account and work there. **Do not push to the original.**
-- **AI tools are allowed.** You must understand and be able to defend every line you submit.
-- **Commit as you go** and keep the real history. Commit the Task 1 defect fix and the filtering
-  separately from each other and from the feature work. A single squashed commit is not accepted.
-- **Where the spec is ambiguous**, make a decision, write it down in the README, and move on.
-- **Out of scope:** registration, password reset, roles, OAuth/SSO, refresh tokens, MFA,
-  notifications, CI, caching, visual redesign. Mention them under *Known limitations* instead.
-
-### Submission
-
-1. Update this **README** with what you built, your design decisions (chosen, rejected and why),
-   the defect's root cause, dev login credentials, how to run and test it, AI usage, and known
-   limitations. A reviewer must be able to run it without asking you anything.
-2. Add an **APPROACH.md** explaining your approach and thought process for each task.
-3. Commit both, then send us the **link to your fork**, the **dev login credentials**, and a
-   **rough note of time spent** on what. (If the fork is private, add the reviewers as collaborators.)
-
----
-
 ## Quick start
 
 **Prerequisites:** .NET SDK 10 (`global.json`), Node.js 22 (`.nvmrc`; 20.19+ works), Docker.
@@ -59,19 +25,37 @@ npm run web                   # terminal 2: React dev server
 | API | https://localhost:7043 (also http://localhost:5043) |
 | Swagger | https://localhost:7043/swagger |
 
-In Development the API applies migrations and seeds demo data on startup. **Never commit real
-credentials.**
+In Development the API applies migrations and seeds demo data on startup. **Never commit real credentials.**
 
 **Visual Studio 2026:** run `npm run db:up`, open `SupportDesk.sln`, set
 **SupportDesk.Presentation** as the startup project, and press F5 on the **https** profile.
 
+---
+
+## Dev login credentials
+
+Task 3 adds authentication. All seeded agents share the same **development** password:
+
+| Field | Value |
+| --- | --- |
+| **Email** | `alex.turner@northwind-support.example` |
+| **Password** | `Password123!` |
+
+Other seeded agent emails: `jordan.casey@`, `morgan.riley@`, `taylor.brooks@`, `casey.morgan@`, `sage.taylor@` (all `@northwind-support.example`).
+
+These credentials exist only in local development. The password is hashed with PBKDF2 at startup — never stored in plain text.
+
+---
+
 ## Tests
 
 ```bash
-npm test                      # dotnet test, then the web tests (Vitest)
+npm test                      # dotnet test (88 tests), then Vitest (27 tests)
 ```
 
-Both pass on a clean checkout and neither needs a database.
+Both pass on a clean checkout. Neither needs a running database (unit tests use mocks / SQLite in-memory).
+
+---
 
 ## Commands
 
@@ -83,20 +67,80 @@ Both pass on a clean checkout and neither needs a database.
 | `npm run lint` / `typecheck` / `format` | Web lint and types / `dotnet format` |
 | `npm run ef -- migrations add <Name>` | Add an EF Core migration |
 
+---
+
 ## API at a glance
 
-| Endpoint | Description |
-| --- | --- |
-| `GET /api/tickets` | Paged list with `search`, `status`, `priority`, `categoryId`, `customerId`, `assignedAgentId`, `unassignedOnly`, `sortBy`, `sortDirection`. **Filters are accepted but not applied yet** (Task 1). |
-| `GET /api/tickets/{id}` | One ticket |
-| `POST /api/tickets` | Create a ticket |
-| `PATCH /api/tickets/{id}/status` · `/assignment` | Change status / assignee |
-| `GET /api/customers` · `/api/agents` · `/api/categories` | Reference data |
+All endpoints except `POST /api/auth/login` and `GET /health` require a valid JWT in the
+`Authorization: Bearer <token>` header.
 
-Errors are `ProblemDetails`: `400` validation, `404` not found, `409` conflict or business rule.
+| Endpoint | Auth | Description |
+| --- | --- | --- |
+| `POST /api/auth/login` | Open | Returns JWT + user info |
+| `GET /api/auth/me` | JWT | Returns current user |
+| `GET /health` | Open | Database reachability |
+| `GET /api/tickets` | JWT | Paged list with `search`, `status`, `priority`, `categoryId`, `customerId`, `assignedAgentId`, `unassignedOnly`, `slaStatus`, `sortBy`, `sortDirection` |
+| `GET /api/tickets/{id}` | JWT | One ticket |
+| `POST /api/tickets` | JWT | Create a ticket (auto-triage: priority, SLA, agent assignment) |
+| `PATCH /api/tickets/{id}/status` | JWT | Change status |
+| `PATCH /api/tickets/{id}/assignment` | JWT | Change assignee |
+| `POST /api/tickets/{id}/escalate` | JWT | Escalate priority; actor comes from token |
+| `GET /api/tickets/{id}/escalations` | JWT | Escalation audit history |
+| `GET /api/customers` · `/api/agents` · `/api/categories` | JWT | Reference data |
 
-**Seed data:** 5 categories, 6 customers (3 Premium), 6 agents (one inactive, one at their limit)
-and 40 tickets across every status, priority and SLA state.
+Errors are `ProblemDetails`: `400` validation, `401` unauthorized, `404` not found, `409` conflict or business rule.
+
+**Seed data:** 5 categories, 6 customers (3 Premium), 6 agents (one inactive, one at their limit) and 40 tickets across every status, priority and SLA state.
+
+---
+
+## Token storage (AU-10 trade-off)
+
+The JWT is stored in **`localStorage`** under the key `northwind_support_token`.
+
+**Why `localStorage`:** Simple, survives browser restarts, no server-side session needed. Works well for an internal support desk tool.
+
+**Trade-off vs `httpOnly` cookie:** `localStorage` is accessible to JavaScript, making it technically susceptible to XSS. An `httpOnly` cookie would be invisible to JS and is the more hardened approach for public-facing apps. For this internal tool the added complexity (CSRF handling, cookie configuration, CORS) was not warranted. The known limitation is documented under *Known limitations*.
+
+---
+
+## Design decisions
+
+### Task 1 — Filter defect (DEFECT-117)
+
+**Root cause:** `useTicketList.ts` listed `debouncedSearch` — not `search` — as a `useEffect` dependency for resetting the page, so rapid typing changed filter state without triggering a page reset. The fix adds `search` (raw) to the reset effect with a 300 ms debounce guard so page resets happen immediately when a non-search filter changes and are debounced for search.
+
+**Server-side filtering:** `TicketQueries.cs` now applies all filter predicates and the count query in SQL before pagination, so `totalCount` always reflects the filtered set.
+
+### Task 2 — Escalation & triage
+
+**SLA windows:** Computed from creation (or escalation) time. Critical = 4 h, High = 8 h, Medium = 24 h, Low = 72 h. Premium customers get 50% of the window (floor: 1 h). All configurable in `appsettings.Development.json` under the `Sla` section.
+
+**Agent assignment (BR-5):** Among active, eligible agents (specialisation-matched where required, strictly below `MaxOpenTickets`), the one with the fewest open tickets wins. Ties broken by agent ID for determinism. No eligible agent is a normal 201 outcome, not an error.
+
+**Escalation actor (AU-8):** The `escalatedBy` field is taken from the JWT claims (`ClaimTypes.Email`), not trusted from the request body, so the caller cannot impersonate another agent.
+
+### Task 3 — Authentication
+
+**Password column vs separate Users table:** `PasswordHash` is placed directly on `Agent` because every system user is a support agent. This avoids a 1:1 join on every login, keeps identity cohesive within one aggregate, and eliminates split-brain update bugs.
+
+**Hashing algorithm:** PBKDF2 with HMAC-SHA256, 128-bit random salt, 100 000 iterations, 256-bit key, constant-time comparison via `CryptographicOperations.FixedTimeEquals`. Chosen because it is built into .NET with no external dependency, cross-platform, and meets NIST SP 800-132 guidance.
+
+**Token lifetime:** 8 hours — one standard support shift. Configurable via `Jwt__ExpiryHours` env var.
+
+**Signing key:** Comes from `JWT_SECRET_KEY` environment variable (listed in `.env.example`). A fallback development value is present in `appsettings.Development.json`; it must never be used in production.
+
+---
+
+## Known limitations
+
+- **No refresh tokens:** Agents must sign in again after 8 hours. Refresh tokens were explicitly out of scope.
+- **No lockout / rate limiting:** Brute-force on `/api/auth/login` is not mitigated. Should be added before production.
+- **`localStorage` XSS risk:** See Token storage section above.
+- **No HTTPS in production:** The dev certificate is self-signed. A real deployment needs a proper TLS certificate.
+- **Registration, password reset, roles, OAuth/SSO, MFA:** Out of scope per the spec.
+
+---
 
 ## Troubleshooting
 
@@ -106,4 +150,5 @@ and 40 tickets across every status, priority and SLA state.
 | Port 1433 already in use | Change the port in `docker-compose.yml` and `.env` |
 | Browser warns about the certificate | `dotnet dev-certs https --trust`, or use the web app, which proxies |
 | Web app shows "Unable to load tickets" | The API is not running, or `VITE_API_PROXY_TARGET` points at the wrong port |
+| "401 Unauthorized" after long idle | Token expired (8 h); sign in again |
 | SQL Server slow on Apple Silicon | Enable Rosetta in Docker Desktop → Settings → General |
